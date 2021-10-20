@@ -1,0 +1,38 @@
+{
+  "version": "0.1.0",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "engines": {
+    "node": ">=10"
+  },
+  "scripts": {
+    "start": "nodemon -e ts --ignore 'cleaned.ts' --exec \"yarn build && yarn out\"",
+    "build": "node ./esbuild.js",
+    "out": "node ./out.js"
+  },
+  "peerDependencies": {},
+  "prettier": {
+    "printWidth": 80,
+    "semi": true,
+    "singleQuote": true,
+    "trailingComma": "es5"
+  },
+  "name": "tsc",
+  "author": "Zack Radisic",
+  "devDependencies": {
+    "@types/node": "^16.11.1",
+    "husky": "^7.0.2",
+    "typescript": "^4.4.4"
+  },
+  "dependencies": {
+    "@ts-morph/bootstrap": "^0.11.0",
+    "esbuild": "^0.13.8",
+    "nodemon": "^2.0.14",
+    "ts-morph": "^12.0.0"
+  }
+}
