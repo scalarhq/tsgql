@@ -1,19 +1,20 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use apollo_encoder::{Field, InputField, InputObjectDef, InputValue, ObjectDef, Schema, Type_};
 use swc::{config::ParseOptions, try_with_handler, Compiler};
 use swc_common::{FileName, FilePathMapping, SourceMap};
 use swc_ecmascript::ast::{
-    Decl, Expr, Module, ModuleItem, Stmt, TsArrayType, TsEntityName, TsFnParam, TsKeywordType,
-    TsKeywordTypeKind, TsPropertySignature, TsType, TsTypeElement, TsTypeParamInstantiation,
-    TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    BindingIdent, Decl, Expr, Module, ModuleItem, Stmt, TsArrayType, TsEntityName, TsFnParam,
+    TsKeywordType, TsKeywordTypeKind, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
+    TsTypeParamInstantiation, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecmascript::ast::{Program, TsFnOrConstructorType, TsFnType};
 
 use anyhow::{Context, Result};
 
-pub fn generate_schema(prog: Module) -> Result<String> {
-    let mut ctx = CodeGenCtx::new();
+pub fn generate_schema(prog: Module, manifest: HashMap<String, GraphQLKind>) -> Result<String> {
+    let mut ctx = CodeGenCtx::new(manifest);
     let _ = ctx.parse(prog);
     todo!()
 }
@@ -22,6 +23,12 @@ pub fn generate_schema(prog: Module) -> Result<String> {
 enum FieldKind {
     Input,
     Object,
+}
+
+pub enum GraphQLKind {
+    Object,
+    Enum,
+    Input,
 }
 
 #[derive(Clone, Debug)]
@@ -69,12 +76,14 @@ impl ParsedField {
 
 struct CodeGenCtx {
     schema: Schema,
+    manifest: HashMap<String, GraphQLKind>,
 }
 
 impl CodeGenCtx {
-    fn new() -> Self {
+    /// `manifest` is generated from the first pass in the Typescript compiler API code
+    fn new(manifest: HashMap<String, GraphQLKind>) -> Self {
         let schema = Schema::new();
-        Self { schema }
+        Self { schema, manifest }
     }
 
     fn parse(&mut self, prog: Module) -> Result<()> {
@@ -91,25 +100,34 @@ impl CodeGenCtx {
 
     fn parse_statement(&mut self, stmt: Stmt) -> Result<()> {
         match stmt {
-            Stmt::Decl(Decl::TsTypeAlias(alias)) => match alias.id.sym.as_ref() {
-                ident => {
-                    let mut object_def = ObjectDef::new(ident.to_string());
-                    self.parse_typed_fields(FieldKind::Object, &alias.type_ann)?
-                        .into_iter()
-                        .for_each(|f| object_def.field(f.object().unwrap()));
+            Stmt::Decl(Decl::TsTypeAlias(alias)) => {
+                let ident = alias.id.sym.as_ref();
+                {
+                    match self.manifest.get(ident) {
+                        Some(&GraphQLKind::Input) => {
+                            let mut input_def = InputObjectDef::new(ident.to_string());
+                            self.parse_typed_fields(FieldKind::Input, &alias.type_ann)?
+                                .into_iter()
+                                .for_each(|f| input_def.field(f.input().unwrap()));
 
-                    self.schema.object(object_def);
+                            self.schema.input(input_def);
+                        }
+                        _ => {
+                            let mut object_def = ObjectDef::new(ident.to_string());
+                            self.parse_typed_fields(FieldKind::Object, &alias.type_ann)?
+                                .into_iter()
+                                .for_each(|f| object_def.field(f.object().unwrap()));
+
+                            self.schema.object(object_def);
+                        }
+                    }
                     Ok(())
                 }
-            },
+            }
             _ => todo!(),
         }
     }
 
-    /// Parse a GraphQL object definition. E.g.
-    ///    type Person {
-    ///        name: String!
-    ///    }
     fn parse_typed_fields(
         &mut self,
         field_kind: FieldKind,
@@ -159,9 +177,10 @@ impl CodeGenCtx {
     }
 
     /// Returns the type of a GraphQL field, returning arguments if it has any.
-    /// `field_name` is optional and is only used to generate names for Inputs.
+    /// `field_name` is used to generate names for Inputs, and can be an empty string
+    /// if you don't expect the Typescript type to be a function
     ///
-    /// Important thing to note is that we only consider a sub-set of type, because
+    /// Important thing to note is that we only consider a sub-set of types, because
     /// the Typescript code is widened by the Typescript Compiler API before we receive it.
     fn parse_type(
         &mut self,
@@ -238,10 +257,36 @@ impl CodeGenCtx {
                 type_ann,
                 ..
             })) => {
-                let mut args: Vec<InputValue> = Vec::with_capacity(params.len());
-                for param in params {
-                    args.push(self.parse_arg(field_name, param)?)
+                if params.len() != 1 {
+                    return Err(anyhow::anyhow!("Expected only one parameter for field arg"));
                 }
+
+                let input = &params[0];
+
+                let lit = match input {
+                    TsFnParam::Ident(BindingIdent { id, type_ann, .. }) => {
+                        if let Some(TsTypeAnn { type_ann, .. }) = type_ann {
+                            match **type_ann {
+                                TsType::TsTypeLit(ref lit) => Some(lit),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                let lit = match lit {
+                    None => return Err(anyhow::anyhow!("Field args can only be objects")),
+                    Some(lit) => lit,
+                };
+
+                let args = lit
+                    .members
+                    .iter()
+                    .map(|f| self.parse_arg_member(field_name, f))
+                    .collect::<Result<Vec<InputValue>>>()?;
 
                 // Optional param can be anything, since we don't know if the return type is
                 // optional until we parse it. `self.parse_type()` will make sure to return
@@ -263,19 +308,25 @@ impl CodeGenCtx {
         Ok((ty, args))
     }
 
-    fn parse_arg(&mut self, field_name: &str, param: &TsFnParam) -> Result<InputValue> {
-        match param {
-            TsFnParam::Ident(ident) => {
-                let param_name = ident.id.sym.as_ref();
-                let ty = &ident.type_ann.as_ref().unwrap().type_ann;
-                let optional = ident.id.optional;
+    fn parse_arg_member(&mut self, field_name: &str, member: &TsTypeElement) -> Result<InputValue> {
+        match member {
+            TsTypeElement::TsPropertySignature(prop_sig) => {
+                let ident = match &*prop_sig.key {
+                    Expr::Ident(ident) => ident,
+                    _ => todo!(),
+                };
 
-                let typ = match **ty {
-                    // Anonymous type, parse the input and add
-                    // to the schema
+                let type_ann = match &prop_sig.type_ann {
+                    Some(t) => t,
+                    None => return Err(anyhow::anyhow!("Missing property")),
+                };
+
+                let name = ident.sym.as_ref();
+
+                let type_ = match &*type_ann.type_ann {
                     TsType::TsTypeLit(_) => {
-                        // New name: field_name + ident (UpperCamelCase)
-                        let name = format!(
+                        // New name: field_name + "Input" (UpperCamelCase)
+                        let input_name = format!(
                             "{}{}",
                             field_name
                                 .chars()
@@ -284,40 +335,39 @@ impl CodeGenCtx {
                                 .map(|c| c.to_ascii_uppercase())
                                 .chain(field_name.chars().skip(1))
                                 .collect::<String>(),
-                            param_name
-                                .chars()
-                                .next()
-                                .into_iter()
-                                .map(|c| c.to_ascii_uppercase())
-                                .chain(param_name.chars().skip(1))
-                                .collect::<String>()
+                            "Input",
                         );
+                        let mut input_def = InputObjectDef::new(input_name);
 
-                        let mut input_def = InputObjectDef::new(name.clone());
-
-                        self.parse_typed_fields(FieldKind::Input, ty)?
+                        self.parse_typed_fields(FieldKind::Input, &type_ann.type_ann)?
                             .into_iter()
                             .for_each(|f| input_def.field(f.input().unwrap()));
 
                         self.schema.input(input_def);
 
-                        if !optional {
+                        if !prop_sig.optional {
                             Type_::NonNull {
-                                ty: Box::new(Type_::NamedType { name }),
+                                ty: Box::new(Type_::NamedType {
+                                    name: name.to_string(),
+                                }),
                             }
                         } else {
-                            Type_::NamedType { name }
+                            Type_::NamedType {
+                                name: name.to_string(),
+                            }
                         }
                     }
-                    _ => {
-                        let (ty, _) = self.parse_type(field_name, ty, ident.id.optional)?;
+                    ty => {
+                        let (ty, _) = self.parse_type(name, ty, prop_sig.optional)?;
                         ty
                     }
                 };
-                Ok(InputValue::new(param_name.to_string(), typ))
+
+                Ok(InputValue::new(ident.sym.to_string(), type_))
             }
-            // TODO: Error handling for invalid param
-            _ => todo!(),
+            _ => Err(anyhow::anyhow!(
+                "Field args input can only contain properties"
+            )),
         }
     }
 
@@ -451,11 +501,38 @@ mod tests {
     fn test(src: &str, expected: &str) {
         let prog = get_prog(src);
 
-        let mut gen = CodeGenCtx::new();
+        let mut gen = CodeGenCtx::new(Default::default());
         gen.parse(prog.module().unwrap()).unwrap();
         let out = gen.finish();
         println!("{}", out);
         assert_eq!(expected, out);
+    }
+
+    fn test_with_manifest(src: &str, expected: &str, mani: Vec<(&str, GraphQLKind)>) {
+        let prog = get_prog(src);
+
+        let mut map: HashMap<String, GraphQLKind> = HashMap::new();
+        mani.into_iter().for_each(|(k, v)| {
+            map.insert(k.into(), v);
+        });
+
+        let mut gen = CodeGenCtx::new(map);
+
+        gen.parse(prog.module().unwrap()).unwrap();
+        let out = gen.finish();
+        println!("{}", out);
+        assert_eq!(expected, out);
+    }
+
+    fn test_expect_err(src: &str) {
+        let prog = get_prog(src);
+        let mut gen = CodeGenCtx::new(Default::default());
+        match gen.parse(prog.module().unwrap()) {
+            Err(_) => {}
+            Ok(_) => {
+                panic!("Expected error")
+            }
+        }
     }
 
     #[test]
@@ -565,97 +642,90 @@ mod tests {
         );
     }
 
-    #[test]
-    fn it_parses_fields_with_args() {
-        // Basic
-        let src = "
+    #[cfg(test)]
+    mod args_tests {
+        use super::*;
+
+        #[test]
+        fn it_parses_fields_with_args() {
+            // Basic
+            let src = "
         type User = { id: string; name: string; karma: number; }
-        type Query = { findUser: (id: string, karma: number) => Promise<User>; }
+        type Query = { findUser: (args: { id?: string, name?: string }) => Promise<User>; }
         ";
-        test(
-            src,
-            indoc! { r#"
+            test(
+                src,
+                indoc! { r#"
             type User {
               id: String!
               name: String!
               karma: Int!
             }
             type Query {
-              findUser(id: String!, karma: Int!): User!
+              findUser(id: String, name: String): User!
             }
             "# },
-        );
+            );
 
-        // Multiple type literals
-        let src = "
+            // With pre-defined input
+            let src = "
         type User = { id: string; name: string; karma: number; }
-        type Query = { findUser: (input1: { id: string, karma: number }, input2: { name?: string }) => Promise<User>; }
+        type FindUserInput = { name: string, id?: string }
+        type Query = { findUser: (args: { input: FindUserInput }) => Promise<User>; }
         ";
-        test(
-            src,
-            indoc! { r#"
-            type User {
-              id: String!
-              name: String!
-              karma: Int!
-            }
-            input FindUserInput1 {
-              id: String!
-              karma: Int!
-            }
-            input FindUserInput2 {
-              name: String
-            }
-            type Query {
-              findUser(input1: FindUserInput1!, input2: FindUserInput2!): User!
-            }
-            "# },
-        );
-
-        // Nullable return
-        let src = "
-        type User = { id: string; name: string; karma: number; }
-        type Query = { findUser: (input: { id?: string; name?: string; }) => Promise<User | null>; }
-        ";
-        test(
-            src,
-            indoc! { r#"
+            test_with_manifest(
+                src,
+                indoc! { r#"
             type User {
               id: String!
               name: String!
               karma: Int!
             }
             input FindUserInput {
-              id: String
-              name: String
-            }
-            type Query {
-              findUser(input: FindUserInput!): User
-            }
-            "# },
-        );
-
-        // Required return
-        let src = "
-        type User = { id: string; name: string; karma: number; }
-        type Query = { findUser: (input: { id?: string; name?: string; }) => Promise<User>; }
-        ";
-        test(
-            src,
-            indoc! { r#"
-            type User {
-              id: String!
               name: String!
-              karma: Int!
-            }
-            input FindUserInput {
               id: String
-              name: String
             }
             type Query {
               findUser(input: FindUserInput!): User!
             }
             "# },
-        );
+                vec![("FindUserInput", GraphQLKind::Input)],
+            );
+
+            // Mix and match
+            let src = "
+        type User = { id: string; name: string; karma: number; }
+        type FindUserInput = { name: string, id?: string }
+        type Query = { findUser: (args: { input: FindUserInput, karma?: number }) => Promise<User>; }
+        ";
+            test_with_manifest(
+                src,
+                indoc! { r#"
+            type User {
+              id: String!
+              name: String!
+              karma: Int!
+            }
+            input FindUserInput {
+              name: String!
+              id: String
+            }
+            type Query {
+              findUser(input: FindUserInput!, karma: Int): User!
+            }
+            "# },
+                vec![("FindUserInput", GraphQLKind::Input)],
+            );
+        }
+
+        #[test]
+        fn it_should_fail_when_given_multiple_args() {
+            // Only 1 arg allowed
+            let src = "
+        type User = { id: string; name: string; karma: number; }
+        type Query = { findUser: (args: { name: string }, woops: { karma: number }) => Promise<User>; }
+        ";
+            test_expect_err(src);
+        }
     }
 }
