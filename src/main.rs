@@ -1,15 +1,7 @@
-use anyhow::{Context, Error, Result};
-use once_cell::sync::Lazy;
-use std::{fs, sync::Arc};
-use swc::{
-    config::{JsMinifyOptions, JscTarget, Options, ParseOptions, SourceMapsConfig},
-    try_with_handler, Compiler,
-};
-use swc_common::{FileName, FilePathMapping, SourceMap};
-use swc_ecmascript::ast::Program;
-use typefirstql::generate_schema;
-
+#[cfg(not(feature = "node"))]
 fn main() {
+    use std::fs::{self};
+    use typefirstql::{generate_schema, parse_ts};
     let filepath = std::env::args().nth(2).unwrap();
     let outpath = std::env::args()
         .nth(3)
@@ -18,7 +10,7 @@ fn main() {
     println!("filepath={}, outpath={}", filepath, outpath);
 
     let code = fs::read_to_string(filepath).expect("failed to read file");
-    let prog = parse_sync(
+    let prog = parse_ts(
         code.as_str(),
         "{
             \"syntax\": \"typescript\",
@@ -29,5 +21,8 @@ fn main() {
     )
     .unwrap();
 
-    generate_schema(prog)
+    // generate_schema(prog)
 }
+
+#[cfg(feature = "node")]
+fn main() {}
