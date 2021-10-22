@@ -142,12 +142,8 @@ export class TypeReducer {
             '`Query` or `Mutation` resolvers must return a Promise'
           );
         }
-        console.log('Ret', retNode.getText())
 
-        const args = retNode.getTypeArguments();
-        console.log('Printing args')
-        args.forEach(a => console.log(a.getText()))
-        const [inner] = args
+        const [inner] = retNode.getTypeArguments();
 
         // TODO: Allow "anonymous" return types, basically return types
         // defined in the resolver. We create a type for the user based on the resolver name:
@@ -163,8 +159,6 @@ export class TypeReducer {
             )}>>`
           );
         } else {
-          console.log(inner.getKind())
-          console.log('FFFF:', inner.getType().getText(inner, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias))
           fn.setReturnType(
             `Promise<${this.typeToString(
               inner.getType().compilerType,
@@ -199,18 +193,23 @@ export class TypeReducer {
     const node = param.getTypeNode();
 
     if (node instanceof TypeReferenceNode) {
-      switch (this.graphQlTypes[node.getTypeName().print()]) {
-        case GraphQLType.Input: {
-          this.expandNode(param, false);
-          break;
+      const graphqlTy = this.graphQlTypes[node.getTypeName().print()]
+      if (graphqlTy) {
+        switch (graphqlTy) {
+          case GraphQLType.Input: {
+            this.expandNode(param, false);
+            break;
+          }
+          default: {
+            throw new Error('Field arguments can only be inputs');
+          }
         }
-        default: {
-          throw new Error('Field arguments can only be inputs');
-        }
+      } else {
+        // We have a type constructed from type utilities: e.g. Partial<User>
+        this.expandNode(param, false)
       }
     } else if (node instanceof TypeLiteralNode) {
       for (const prop of node.getProperties()) {
-        console.log('Expanding prop', prop.getName())
         this.expandProperty(prop);
       }
     }
@@ -252,13 +251,13 @@ export class TypeReducer {
     // `| null` and `| undefined`, and perplexingly enough, node.isUnion() returns false
     // even if node.kind === 185 (UnionType)...
     if (node?.kind === ts.SyntaxKind.UnionType) {
-      // const text = node?.getText();
-      // if (text?.includes('| null')) {
-      //   return str + ' | null';
-      // }
-      // if (text?.includes('| undefined')) {
-      //   return str + ' | undefined';
-      // }
+      const text = node?.getText();
+      if (text?.includes('| null')) {
+        return str + ' | null';
+      }
+      if (text?.includes('| undefined')) {
+        return str + ' | undefined';
+      }
     }
 
     return str;

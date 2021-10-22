@@ -1,0 +1,21 @@
+type User {
+  id: String!
+  name: String!
+  karma: Int!
+}
+input GetUserInput {
+  id: String
+  name: String
+  karma: Int
+}
+type Query {
+  getUser(user: GetUserInput, karma: Int): [User]
+}
+input UpdateUserInput {
+  id: String
+  name: String
+}
+type Mutation {
+  createUser(name: String, karma: Int): User!
+  updateUser(user: UpdateUserInput!): User
+}

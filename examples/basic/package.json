@@ -1,0 +1,13 @@
+{
+  "name": "basic",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Zack Radisic",
+  "license": "MIT",
+  "scripts": {
+    "generate": "node ../../index.js ./examples/basic/tql.config.js"
+  },
+  "dependencies": {
+    "typescript": "^4.4.4"
+  }
+}

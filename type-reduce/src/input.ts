@@ -35,12 +35,12 @@ export type Query = {
   }) => Promise<User[] | null>;
 };
 
-// export type Mutation = {
-//   createUser: (input: Partial<Omit<User, 'id'>>) => Promise<User | null>;
-//   createLoot: (
-//     input: Partial<Omit<Loot, 'rarity'>>
-//   ) => Promise<CreateLootOutput>;
-// };
+export type Mutation = {
+  createUser: (input: { user: Partial<Omit<User, 'id'>> }) => Promise<User | null>;
+  createLoot: (
+    input: Partial<Omit<Loot, 'rarity'>>
+  ) => Promise<CreateLootOutput>;
+};
 
 export type CreateLootOutput = {
   success: boolean;

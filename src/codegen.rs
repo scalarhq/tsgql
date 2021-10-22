@@ -320,11 +320,12 @@ impl CodeGenCtx {
                     Some(lit) => lit,
                 };
 
+                let member_count = lit.members.len();
                 self.parsing_inputs = true;
                 let args = lit
                     .members
                     .iter()
-                    .map(|f| self.parse_arg_member(field_name, f))
+                    .map(|f| self.parse_arg_member(field_name, f, member_count))
                     .collect::<Result<Vec<InputValue>>>()?;
                 self.parsing_inputs = false;
 
@@ -352,7 +353,12 @@ impl CodeGenCtx {
         Ok((ty, args))
     }
 
-    fn parse_arg_member(&mut self, field_name: &str, member: &TsTypeElement) -> Result<InputValue> {
+    fn parse_arg_member(
+        &mut self,
+        field_name: &str,
+        member: &TsTypeElement,
+        member_count: usize,
+    ) -> Result<InputValue> {
         match member {
             TsTypeElement::TsPropertySignature(prop_sig) => {
                 let ident = match &*prop_sig.key {
@@ -369,19 +375,8 @@ impl CodeGenCtx {
 
                 let type_ = match &*type_ann.type_ann {
                     TsType::TsTypeLit(_) => {
-                        // New name: field_name + "Input" (UpperCamelCase)
-                        let input_name = format!(
-                            "{}{}",
-                            field_name
-                                .chars()
-                                .next()
-                                .iter()
-                                .map(|c| c.to_ascii_uppercase())
-                                .chain(field_name.chars().skip(1))
-                                .collect::<String>(),
-                            "Input",
-                        );
-                        let mut input_def = InputObjectDef::new(input_name);
+                        let input_name = Self::compute_input_name(field_name, name, member_count);
+                        let mut input_def = InputObjectDef::new(input_name.clone());
 
                         self.parse_typed_fields(FieldKind::Input, &type_ann.type_ann)?
                             .into_iter()
@@ -391,14 +386,10 @@ impl CodeGenCtx {
 
                         if !prop_sig.optional {
                             Type_::NonNull {
-                                ty: Box::new(Type_::NamedType {
-                                    name: name.to_string(),
-                                }),
+                                ty: Box::new(Type_::NamedType { name: input_name }),
                             }
                         } else {
-                            Type_::NamedType {
-                                name: name.to_string(),
-                            }
+                            Type_::NamedType { name: input_name }
                         }
                     }
                     ty => {
@@ -440,14 +431,7 @@ impl CodeGenCtx {
         match ty {
             TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
                 TsUnionType { types, .. },
-            )) => {
-                for ty in types {
-                    if Self::is_nullable(ty) {
-                        return true;
-                    }
-                }
-                false
-            }
+            )) => types.iter().any(|ty| Self::is_nullable(ty)),
             _ => false,
         }
     }
@@ -484,6 +468,46 @@ impl CodeGenCtx {
             Ok(ret_ty)
         } else {
             Err(anyhow::anyhow!("No non-nullable type found in union"))
+        }
+    }
+
+    /// Computes a name for a new Input type. The resulting name depends on the value of
+    /// `member_count`. If `member_count === 1`, then the return is simply a concatenation of
+    ///  of `field_name` and the string "Input".
+    ///
+    /// Otherwise, we also concatenate the name of the param
+    fn compute_input_name(field_name: &str, param_name: &str, member_count: usize) -> String {
+        if member_count == 1 {
+            format!(
+                "{}{}",
+                field_name
+                    .chars()
+                    .next()
+                    .iter()
+                    .map(|c| c.to_ascii_uppercase())
+                    .chain(field_name.chars().skip(1))
+                    .collect::<String>(),
+                "Input",
+            )
+        } else {
+            format!(
+                "{}{}{}",
+                field_name
+                    .chars()
+                    .next()
+                    .iter()
+                    .map(|c| c.to_ascii_uppercase())
+                    .chain(field_name.chars().skip(1))
+                    .collect::<String>(),
+                "Input",
+                param_name
+                    .chars()
+                    .next()
+                    .iter()
+                    .map(|c| c.to_ascii_uppercase())
+                    .chain(param_name.chars().skip(1))
+                    .collect::<String>(),
+            )
         }
     }
 
@@ -823,13 +847,103 @@ mod tests {
 
         #[test]
         fn it_should_fail_when_given_multiple_args() {
-            // Only 1 arg allowed
+            // Inlined type literal
             let src = "
         type User = { id: string; name: string; karma: number; }
         type Query = { findUser: (args: { name: string }, woops: { karma: number }) => Promise<User>; }
         ";
             test_expect_err(
                 src,
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("Query", GraphQLKind::Object),
+                ],
+            );
+        }
+
+        #[test]
+        fn it_parses_type_literal_args() {
+            let src = "
+        type User = { id: string; name: string; karma: number; }
+        type Query = { findUser: (args: { user: { name?: string, karma?: number } }) => Promise<User>; }
+        ";
+            test(
+                src,
+                indoc! { r#"
+            type User {
+              id: String!
+              name: String!
+              karma: Int!
+            }
+            input FindUserInput {
+              name: String
+              karma: Int
+            }
+            type Query {
+              findUser(user: FindUserInput!): User!
+            }
+            "# },
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("Query", GraphQLKind::Object),
+                ],
+            );
+        }
+
+        #[test]
+        fn it_parses_type_literal_and_keyword_ags() {
+            let src = "
+            type User = { id: string; name: string; karma: number; }
+            type Query = { findUser: (args: { user: { name?: string, karma?: number }, karma?: number }) => Promise<User>; }
+            ";
+            test(
+                src,
+                indoc! { r#"
+                type User {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                input FindUserInputUser {
+                  name: String
+                  karma: Int
+                }
+                type Query {
+                  findUser(user: FindUserInputUser!, karma: Int): User!
+                }
+                "# },
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("Query", GraphQLKind::Object),
+                ],
+            );
+        }
+
+        #[test]
+        fn it_parses_multiple_type_literal_args() {
+            let src = "
+            type User = { id: string; name: string; karma: number; }
+            type Query = { findUser: (args: { user: { name?: string, karma?: number }, other?: { id: string } }) => Promise<User>; }
+            ";
+            test(
+                src,
+                indoc! { r#"
+                type User {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                input FindUserInputUser {
+                  name: String
+                  karma: Int
+                }
+                input FindUserInputOther {
+                  id: String!
+                }
+                type Query {
+                  findUser(user: FindUserInputUser!, other: FindUserInputOther): User!
+                }
+                "# },
                 vec![
                     ("User", GraphQLKind::Object),
                     ("Query", GraphQLKind::Object),
