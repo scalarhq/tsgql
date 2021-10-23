@@ -262,12 +262,18 @@ impl CodeGenCtx {
                                     ident.sym.as_ref()
                                 ));
                             }
-                            None | Some(_) => (
+                            Some(_) => (
                                 Type_::NamedType {
                                     name: ident.sym.to_string(),
                                 },
                                 None,
                             ),
+                            None => {
+                                return Err(anyhow::anyhow!(
+                                    "Undefined type: {}",
+                                    ident.sym.as_ref()
+                                ))
+                            }
                         }
                     } else {
                         match type_params {
@@ -1161,6 +1167,40 @@ mod tests {
                     ("Query", GraphQLKind::Object),
                 ],
             );
+
+            // let src = "
+            // type User = { id: string; name: string; karma: number; }
+            // type GetUserInput = { id?: string; name?: string; karma?: number; }
+            // type Foo = { id: string; name: string; karma: number; }
+            // type Query = { getUser: (input: {    user?: GetUserInput;    karma?: number;}) => Promise<{    id: string;    name: string;    karma: number;}[] | null>; }
+            // type Mutation = {
+            //     createUser: (input: {    name?: string;    karma?: number;}) => Promise<{    name: string;}>;
+            //     updateUser: (input: {    user: {        id?: string;        name?: string;    };}) => Promise<{    id: string;    name: string;    karma: number;} | null>;
+            // }
+            // ";
+            // test(
+            //     src,
+            //     indoc! { r#"
+            //     type User {
+            //       id: String!
+            //       name: String!
+            //       karma: Int!
+            //     }
+            //     type FindUserOutput {
+            //       user: User!
+            //       success: Boolean!
+            //     }
+            //     type Query {
+            //       findUser(id: String!): FindUserOutput
+            //     }
+            //     "# },
+            //     vec![
+            //         ("User", GraphQLKind::Object),
+            //         ("GetUserInput", GraphQLKind::Input),
+            //         ("Query", GraphQLKind::Object),
+            //         ("Mutation", GraphQLKind::Object),
+            //     ],
+            // );
         }
     }
 }
