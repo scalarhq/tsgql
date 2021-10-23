@@ -7,7 +7,7 @@ use swc_common::{FileName, FilePathMapping, SourceMap};
 use swc_ecmascript::ast::{
     BindingIdent, Decl, Expr, Module, ModuleItem, Stmt, TsArrayType, TsEntityName, TsFnParam,
     TsKeywordType, TsKeywordTypeKind, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
-    TsTypeParamInstantiation, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    TsTypeLit, TsTypeParamInstantiation, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecmascript::ast::{Program, TsFnOrConstructorType, TsFnType};
 
@@ -19,10 +19,25 @@ pub fn generate_schema(prog: Module, manifest: HashMap<String, GraphQLKind>) -> 
     Ok(ctx.finish())
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum FieldKind {
     Input,
     Object,
+}
+
+impl FieldKind {
+    pub fn name(&self) -> String {
+        match self {
+            Self::Input => "Input".into(),
+            Self::Object => "Object".into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum KeyedGraphQLKind {
+    Object(ObjectDef),
+    Input(InputObjectDef),
 }
 
 #[derive(Debug)]
@@ -30,6 +45,11 @@ pub enum GraphQLKind {
     Object,
     Input,
     Enum,
+}
+
+pub enum ComputeNameKind<'a> {
+    Input(&'a str, usize),
+    Output,
 }
 
 impl GraphQLKind {
@@ -167,7 +187,7 @@ impl CodeGenCtx {
                     }
                 }
             }
-            _ => todo!(),
+            r => todo!("Not implemented parsing in this context: {:?}", r),
         };
 
         Ok(fields)
@@ -278,7 +298,35 @@ impl CodeGenCtx {
                                         TsUnionOrIntersectionType::TsUnionType(u),
                                     ) if Self::is_nullable_union(typ) => {
                                         let non_null = Self::unwrap_union(u)?;
-                                        return self.parse_type("", non_null, true);
+                                        return match non_null {
+                                            TsType::TsTypeLit(_) => {
+                                                let name = Self::compute_new_name(
+                                                    ComputeNameKind::Output,
+                                                    field_name,
+                                                );
+                                                self.parse_type_literal(
+                                                    FieldKind::Object,
+                                                    &name,
+                                                    non_null,
+                                                )?;
+
+                                                return Ok((Type_::NamedType { name }, None));
+                                            }
+                                            _ => self.parse_type("", non_null, true),
+                                        };
+                                    }
+                                    TsType::TsTypeLit(_) => {
+                                        let name = Self::compute_new_name(
+                                            ComputeNameKind::Output,
+                                            field_name,
+                                        );
+                                        self.parse_type_literal(FieldKind::Object, &name, typ)?;
+                                        (
+                                            Type_::NonNull {
+                                                ty: Box::new(Type_::NamedType { name }),
+                                            },
+                                            None,
+                                        )
                                     }
                                     _ => return self.parse_type("", typ, false),
                                 }
@@ -375,14 +423,11 @@ impl CodeGenCtx {
 
                 let type_ = match &*type_ann.type_ann {
                     TsType::TsTypeLit(_) => {
-                        let input_name = Self::compute_input_name(field_name, name, member_count);
-                        let mut input_def = InputObjectDef::new(input_name.clone());
-
-                        self.parse_typed_fields(FieldKind::Input, &type_ann.type_ann)?
-                            .into_iter()
-                            .for_each(|f| input_def.field(f.input().unwrap()));
-
-                        self.schema.input(input_def);
+                        let input_name = Self::compute_new_name(
+                            ComputeNameKind::Input(name, member_count),
+                            field_name,
+                        );
+                        self.parse_type_literal(FieldKind::Input, &input_name, &type_ann.type_ann)?;
 
                         if !prop_sig.optional {
                             Type_::NonNull {
@@ -403,6 +448,36 @@ impl CodeGenCtx {
             _ => Err(anyhow::anyhow!(
                 "Field args input can only contain properties"
             )),
+        }
+    }
+
+    fn parse_type_literal(&mut self, kind: FieldKind, new_name: &str, ty: &TsType) -> Result<()> {
+        match kind {
+            FieldKind::Input => {
+                let mut input_def = InputObjectDef::new(new_name.into());
+
+                self.parse_typed_fields(FieldKind::Input, ty)?
+                    .into_iter()
+                    .for_each(|f| input_def.field(f.input().unwrap()));
+
+                self.schema.input(input_def);
+
+                Ok(())
+            }
+            FieldKind::Object => {
+                let mut object_def = ObjectDef::new(new_name.into());
+
+                self.parse_typed_fields(FieldKind::Object, ty)?
+                    .into_iter()
+                    .for_each(|f| object_def.field(f.object().unwrap()));
+
+                self.schema.object(object_def);
+
+                Ok(())
+            }
+            _ => {
+                panic!("Cannot turn type literal into: {:?}", kind);
+            }
         }
     }
 
@@ -476,38 +551,22 @@ impl CodeGenCtx {
     ///  of `field_name` and the string "Input".
     ///
     /// Otherwise, we also concatenate the name of the param
-    fn compute_input_name(field_name: &str, param_name: &str, member_count: usize) -> String {
-        if member_count == 1 {
-            format!(
-                "{}{}",
-                field_name
-                    .chars()
-                    .next()
-                    .iter()
-                    .map(|c| c.to_ascii_uppercase())
-                    .chain(field_name.chars().skip(1))
-                    .collect::<String>(),
-                "Input",
-            )
-        } else {
-            format!(
-                "{}{}{}",
-                field_name
-                    .chars()
-                    .next()
-                    .iter()
-                    .map(|c| c.to_ascii_uppercase())
-                    .chain(field_name.chars().skip(1))
-                    .collect::<String>(),
-                "Input",
-                param_name
-                    .chars()
-                    .next()
-                    .iter()
-                    .map(|c| c.to_ascii_uppercase())
-                    .chain(param_name.chars().skip(1))
-                    .collect::<String>(),
-            )
+    fn compute_new_name(kind: ComputeNameKind, field_name: &str) -> String {
+        match kind {
+            ComputeNameKind::Output => {
+                format!("{}{}", upper_camel_case(field_name), "Output")
+            }
+            ComputeNameKind::Input(_param_name, member_count) if member_count == 1 => {
+                format!("{}{}", upper_camel_case(field_name), "Input",)
+            }
+            ComputeNameKind::Input(param_name, _) => {
+                format!(
+                    "{}{}{}",
+                    upper_camel_case(field_name),
+                    "Input",
+                    upper_camel_case(param_name)
+                )
+            }
         }
     }
 
@@ -524,6 +583,15 @@ impl CodeGenCtx {
             _ => todo!(),
         }
     }
+}
+
+fn upper_camel_case(s: &str) -> String {
+    s.chars()
+        .next()
+        .iter()
+        .map(|c| c.to_ascii_uppercase())
+        .chain(s.chars().skip(1))
+        .collect::<String>()
 }
 
 pub fn parse_ts(s: &str, opts: &str) -> Result<Program> {
@@ -891,7 +959,7 @@ mod tests {
         }
 
         #[test]
-        fn it_parses_type_literal_and_keyword_ags() {
+        fn it_parses_type_literal_and_keyword_args() {
             let src = "
             type User = { id: string; name: string; karma: number; }
             type Query = { findUser: (args: { user: { name?: string, karma?: number }, karma?: number }) => Promise<User>; }
@@ -1027,6 +1095,65 @@ mod tests {
                 }
                 type Query {
                   findUser(id: String!): String!
+                }
+                "# },
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("Query", GraphQLKind::Object),
+                ],
+            );
+        }
+
+        #[test]
+        fn it_should_identify_promised_return_type_literal() {
+            let src = "
+        type User = { id: string; name: string; karma: number; }
+        type Query = { 
+            findUser: (args: { id: string }) => Promise<{ user: User, success: boolean}>; 
+        }
+        ";
+            test(
+                src,
+                indoc! { r#"
+                type User {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                type FindUserOutput {
+                  user: User!
+                  success: Boolean!
+                }
+                type Query {
+                  findUser(id: String!): FindUserOutput!
+                }
+                "# },
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("Query", GraphQLKind::Object),
+                ],
+            );
+
+            let src = "
+        type User = { id: string; name: string; karma: number; }
+        type Query = { 
+            findUser: (args: { id: string }) => Promise<{ user: User, success: boolean} | null>; 
+        }
+        ";
+            test(
+                src,
+                indoc! { r#"
+                type User {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                type FindUserOutput {
+                  user: User!
+                  success: Boolean!
+                }
+                type Query {
+                  findUser(id: String!): FindUserOutput
                 }
                 "# },
                 vec![
