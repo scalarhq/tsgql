@@ -1,5 +1,9 @@
-import { isTypeReferenceNode } from '@ts-morph/common/lib/typescript';
 import {
+  isTypeReferenceNode,
+  UnionType,
+} from '@ts-morph/common/lib/typescript';
+import {
+  Node,
   ExportedDeclarations,
   FunctionTypeNode,
   ParameterDeclaration,
@@ -10,8 +14,11 @@ import {
   Type,
   TypeAliasDeclaration,
   TypeChecker,
+  TypedNode,
   TypeLiteralNode,
   TypeReferenceNode,
+  UnionTypeNode,
+  ArrayTypeNode,
 } from 'ts-morph';
 
 export enum GraphQLType {
@@ -30,6 +37,7 @@ export class TypeReducer {
   checker: TypeChecker;
 
   graphQlTypes: Record<string, GraphQLType>;
+  acknowledgedTypes: Record<string, boolean>;
   expanded: string[];
 
   constructor(project: Project, sourceFile: SourceFile) {
@@ -38,6 +46,7 @@ export class TypeReducer {
     this.checker = project.getTypeChecker();
 
     this.graphQlTypes = {};
+    this.acknowledgedTypes = {};
     this.expanded = [];
   }
 
@@ -67,10 +76,18 @@ export class TypeReducer {
         }
       }
     }
+
+    const imported = this.sourceFile.getImportDeclarations()
+    for (const decl of imported) {
+      for (const imp of decl.getNamedImports()) {
+        this.acknowledgedTypes[imp.getName()] = true
+      }
+    }
   }
 
   generateReducedTypes() {
-    console.log(this.graphQlTypes)
+    console.log(this.graphQlTypes);
+    console.log(this.acknowledgedTypes)
     const exported = this.sourceFile.getExportedDeclarations();
     for (const [name, [decl]] of exported) {
       switch (decl.getKind()) {
@@ -89,6 +106,23 @@ export class TypeReducer {
     const name = node.getName();
     if (name === 'Query' || name === 'Mutation') {
       this.visitQueryOrMutationDecl(node);
+    }
+
+    switch (node.getTypeNode()?.getKind()) {
+      // Resolving type references
+      case ts.SyntaxKind.TypeReference: {
+        const name = node.getTypeNode()?.getText() || ''
+        // Don't do anything if it's a graphql type
+        if (this.graphQlTypes[name] !== undefined) {
+          break;
+        }
+        if (this.acknowledgedTypes[name]) {
+          this.expandNode(node, false, true)
+        } 
+        // If we haven't visited this type, it probably means it's a utility type like
+        // Partial<T>, Omit<T>, etc. and we want to expand it
+        break;
+      }
     }
 
     this.expandNode(node);
@@ -153,16 +187,13 @@ export class TypeReducer {
         // so we know whether to create a type or use an existing one the user defined.
         if (retNode.getType().isIntersection()) {
           fn.setReturnType(
-            `Promise<___Expand<${this.typeToString(
-              inner.getType().compilerType,
-              inner.compilerNode
-            )}>>`
+            `Promise<___Expand<${this.typeToString(inner.getType(), inner)}>>`
           );
         } else {
           fn.setReturnType(
             `Promise<${this.typeToString(
-              inner.getType().compilerType,
-              inner.compilerNode,
+              inner.getType(),
+              inner,
               ts.TypeFormatFlags.NoTruncation
             )}>`
           );
@@ -177,15 +208,16 @@ export class TypeReducer {
       getStructure(): any;
       set(obj: Record<string, any>): any;
     },
-    inAutoExpandableCtx = true
+    inAutoExpandableCtx = true,
+    forceExpansion = false
   ) {
     const ty = node.getType();
-    if (ty.isIntersection()) {
+    if (ty.isIntersection() || forceExpansion) {
       const { type } = node.getStructure();
       node.set({ type: `___Expand<${type}>` });
     }
     if (!inAutoExpandableCtx) {
-      node.set({ type: this.typeToString(node.getType().compilerType) });
+      node.set({ type: this.typeToString(node.getType(), node as any) });
     }
   }
 
@@ -193,7 +225,7 @@ export class TypeReducer {
     const node = param.getTypeNode();
 
     if (node instanceof TypeReferenceNode) {
-      const graphqlTy = this.graphQlTypes[node.getTypeName().print()]
+      const graphqlTy = this.graphQlTypes[node.getTypeName().print()];
       if (graphqlTy) {
         switch (graphqlTy) {
           case GraphQLType.Input: {
@@ -206,7 +238,7 @@ export class TypeReducer {
         }
       } else {
         // We have a type constructed from type utilities: e.g. Partial<User>
-        this.expandNode(param, false)
+        this.expandNode(param, false);
       }
     } else if (node instanceof TypeLiteralNode) {
       for (const prop of node.getProperties()) {
@@ -232,34 +264,69 @@ export class TypeReducer {
     }
 
     propSig.set({
-      type: this.typeToString(
-        propSig.getType().compilerType,
-        propSig.compilerNode
-      ),
+      type: this.typeToString(propSig.getType(), propSig),
     });
   }
 
   typeToString(
-    ty: ts.Type,
-    node?: ts.Node,
+    ty: Type<ts.Type>,
+    node?: Node,
     flags: ts.TypeFormatFlags = ts.TypeFormatFlags.NoTruncation |
       ts.TypeFormatFlags.InTypeAlias 
-  ) {
-    const str = this.checker.compilerObject.typeToString(ty, node, flags);
-
-    // For some reason type checker mysteriously drops unions containing
-    // `| null` and `| undefined`, and perplexingly enough, node.isUnion() returns false
-    // even if node.kind === 185 (UnionType)...
-    if (node?.kind === ts.SyntaxKind.UnionType) {
-      const text = node?.getText();
-      if (text?.includes('| null')) {
-        return str + ' | null';
+  ): string {
+    switch (node?.getKind()) {
+      case ts.SyntaxKind.TypeReference: {
+        const name = (node as TypeReferenceNode).getTypeName().getText();
+        if (this.graphQlTypes[name] !== undefined) {
+          return name;
+        }
+        return this.checker.compilerObject.typeToString(
+          ty.compilerType,
+          node?.compilerNode,
+          flags
+        );
       }
-      if (text?.includes('| undefined')) {
-        return str + ' | undefined';
+      case ts.SyntaxKind.UnionType: {
+        const unionNodes = (node as UnionTypeNode).getTypeNodes();
+        if (unionNodes.length !== 2) {
+          throw new Error(
+            'Type unions can only contain 1 nullable type and 1 non-nullable type'
+          );
+        }
+
+        // Type references won't get properly expanded in unions for some reason
+        const nonNull = unionNodes.find(
+          (node) =>
+            node.getKind() !== ts.SyntaxKind.UndefinedKeyword &&
+            node.getKind() !== ts.SyntaxKind.NullKeyword
+        );
+        if (!nonNull) {
+          throw new Error('Type unions must contain a non-nullable type');
+        }
+
+        const str = this.typeToString(nonNull.getType(), nonNull, flags);
+
+        // For some reason type checker mysteriously drops unions containing
+        // `| null` and `| undefined`, and perplexingly enough, node.isUnion() returns false
+        // even if node.kind === 185 (UnionType)...
+        const text = node?.getText();
+        if (text?.includes('| null')) {
+          return str + ' | null';
+        }
+        if (text?.includes('| undefined')) {
+          return str + ' | undefined';
+        }
+
+        throw new Error('This should not happen');
+      }
+      default: {
+        const f = this.checker.compilerObject.typeToString(
+          ty.compilerType,
+          node?.compilerNode,
+          flags
+        );
+        return f
       }
     }
-
-    return str;
   }
 }

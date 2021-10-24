@@ -112,17 +112,19 @@ struct CodeGenCtx {
 
     /// True when we are parsing the inputs of a field with arguments
     parsing_inputs: bool,
+    /// True when we are parsing the output of a field with arguments
+    parsing_output: bool,
 }
 
 impl CodeGenCtx {
     /// `manifest` is generated from the first pass in the Typescript compiler API code
     fn new(manifest: HashMap<String, GraphQLKind>) -> Self {
         let schema = Schema::new();
-        println!("MANIFESET: {:?}", manifest);
         Self {
             schema,
             manifest,
             parsing_inputs: false,
+            parsing_output: false,
         }
     }
 
@@ -234,14 +236,30 @@ impl CodeGenCtx {
             TsType::TsKeywordType(TsKeywordType { kind, .. }) => {
                 (Self::parse_keyword_type(kind)?, None)
             }
-            TsType::TsArrayType(TsArrayType { elem_type, .. }) => (
-                Type_::List {
-                    // TODO: There is no way to set non-nullable array elements in TS,
-                    // meaning we cant represent [Int!]!
-                    ty: Box::new(self.parse_type(field_name, elem_type, true)?.0),
-                },
-                None,
-            ),
+            TsType::TsArrayType(TsArrayType { elem_type, .. }) => {
+                match (self.parsing_output, &**elem_type) {
+                    (true, TsType::TsTypeLit(_)) => {
+                        let name = Self::compute_new_name(ComputeNameKind::Output, field_name);
+                        self.parse_type_literal(FieldKind::Object, &name, elem_type)?;
+                        (
+                            Type_::List {
+                                ty: Box::new(Type_::NamedType { name }),
+                            },
+                            None,
+                        )
+                    }
+                    _ => {
+                        (
+                            Type_::List {
+                                // TODO: There is no way to set non-nullable array elements in TS,
+                                // meaning we cant represent [Int!]!
+                                ty: Box::new(self.parse_type(field_name, elem_type, true)?.0),
+                            },
+                            None,
+                        )
+                    }
+                }
+            }
             TsType::TsTypeRef(TsTypeRef {
                 type_name,
                 type_params,
@@ -318,7 +336,7 @@ impl CodeGenCtx {
 
                                                 return Ok((Type_::NamedType { name }, None));
                                             }
-                                            _ => self.parse_type("", non_null, true),
+                                            _ => self.parse_type(field_name, non_null, true),
                                         };
                                     }
                                     TsType::TsTypeLit(_) => {
@@ -383,10 +401,12 @@ impl CodeGenCtx {
                     .collect::<Result<Vec<InputValue>>>()?;
                 self.parsing_inputs = false;
 
+                self.parsing_output = true;
                 // Last param can be anything here, since we don't know if the return type is
                 // optional until we parse it. `self.parse_type()` will make sure to return
                 // the correct type if we are parsing return type
                 let (ret_ty, _) = self.parse_type(field_name, &type_ann.type_ann, true)?;
+                self.parsing_output = false;
 
                 return Ok((ret_ty, Some(args)));
             }
@@ -394,6 +414,7 @@ impl CodeGenCtx {
                 let typ = Self::unwrap_union(uni)?;
                 return self.parse_type(field_name, typ, true);
             }
+            // TODO: Move TsTypeLit in here
             r => {
                 println!("{:?}", r);
                 todo!();
@@ -1168,39 +1189,40 @@ mod tests {
                 ],
             );
 
-            // let src = "
-            // type User = { id: string; name: string; karma: number; }
-            // type GetUserInput = { id?: string; name?: string; karma?: number; }
-            // type Foo = { id: string; name: string; karma: number; }
-            // type Query = { getUser: (input: {    user?: GetUserInput;    karma?: number;}) => Promise<{    id: string;    name: string;    karma: number;}[] | null>; }
-            // type Mutation = {
-            //     createUser: (input: {    name?: string;    karma?: number;}) => Promise<{    name: string;}>;
-            //     updateUser: (input: {    user: {        id?: string;        name?: string;    };}) => Promise<{    id: string;    name: string;    karma: number;} | null>;
-            // }
-            // ";
-            // test(
-            //     src,
-            //     indoc! { r#"
-            //     type User {
-            //       id: String!
-            //       name: String!
-            //       karma: Int!
-            //     }
-            //     type FindUserOutput {
-            //       user: User!
-            //       success: Boolean!
-            //     }
-            //     type Query {
-            //       findUser(id: String!): FindUserOutput
-            //     }
-            //     "# },
-            //     vec![
-            //         ("User", GraphQLKind::Object),
-            //         ("GetUserInput", GraphQLKind::Input),
-            //         ("Query", GraphQLKind::Object),
-            //         ("Mutation", GraphQLKind::Object),
-            //     ],
-            // );
+            let src = "
+            type User = { id: string; name: string; karma: number; }
+            type Mutation = {
+                updateUser: (input: {    user: {        id?: string;        name?: string;    };}) => Promise<{    id: string;    name: string;    karma: number;}[] | null>;
+            }
+            ";
+            test(
+                src,
+                indoc! { r#"
+                type User {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                input UpdateUserInput {
+                  id: String
+                  name: String
+                }
+                type UpdateUserOutput {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                type Mutation {
+                  updateUser(user: UpdateUserInput!): [UpdateUserOutput]
+                }
+                "# },
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("GetUserInput", GraphQLKind::Input),
+                    ("Query", GraphQLKind::Object),
+                    ("Mutation", GraphQLKind::Object),
+                ],
+            );
         }
     }
 }

@@ -3,6 +3,13 @@ import {
 } from 'ts-morph';
 import { TypeReducer } from './lib';
 
+const prelude = `
+type ___ExpandRecursively<T> = T extends object ? T extends infer O ? {
+    [K in keyof O]: ___ExpandRecursively<O[K]>;
+} : never : T;
+type ___Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
+`;
+
 export const reduceTypes = ({ tsconfigPath, path } = {tsconfigPath: './tsconfig.json', path: './src/schema.ts' }) => {
   const project = new Project({ tsConfigFilePath: tsconfigPath })
 
@@ -14,6 +21,8 @@ export const reduceTypes = ({ tsconfigPath, path } = {tsconfigPath: './tsconfig.
   if (!sourceFile) {
     throw new Error('Schema file not found')
   }
+  
+  sourceFile.insertText(0, prelude)
 
   const diagnostics = project.getPreEmitDiagnostics()
   if (diagnostics.length) {

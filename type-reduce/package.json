@@ -11,8 +11,9 @@
     "node": ">=10"
   },
   "scripts": {
+    "test": "jest",
     "start": "nodemon -e ts --ignore 'cleaned.ts' --ignore 'dist/' --exec \"yarn build && yarn out\"",
-    "build": "tsc && node ./esbuild.js && mkdir -p ../dist && cp dist/* ../dist/",
+    "build": "rm -rf ./dist && rm -rf ../dist && tsc && node ./esbuild.js && mkdir -p ../dist && mv dist/* ../dist/",
     "tsc": "tsc",
     "out": "node ./dist/index.js"
   },
@@ -26,8 +27,13 @@
   "name": "type-reduce",
   "author": "Zack Radisic",
   "devDependencies": {
+    "@swc/core": "^1.2.102",
+    "@swc/jest": "^0.2.5",
+    "@types/jest": "^27.0.2",
     "@types/node": "^16.11.1",
     "husky": "^7.0.2",
+    "jest": "^27.3.1",
+    "ts-jest": "^27.0.7",
     "typescript": "^4.4.4"
   },
   "dependencies": {
