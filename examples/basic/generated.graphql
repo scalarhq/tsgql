@@ -1,21 +1,29 @@
 type User {
   id: String!
   name: String!
-  karma: Int!
+  karma: Int
 }
 input GetUserInput {
   id: String
   name: String
   karma: Int
 }
+type Foo {
+  id: String!
+  name: String!
+  karma: Int
+}
 type Query {
   getUser(user: GetUserInput, karma: Int): [User]
 }
+type CreateUserOutput {
+  name: String!
+}
 input UpdateUserInput {
-  id: String
   name: String
+  karma: Int
 }
 type Mutation {
-  createUser(name: String, karma: Int): User!
+  createUser(name: String!, karma: Int): CreateUserOutput!
   updateUser(user: UpdateUserInput!): User
 }

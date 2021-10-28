@@ -15,7 +15,7 @@ export const reduceTypes = ({ tsconfigPath, path } = {tsconfigPath: './tsconfig.
 
   // With strict on Typescript turns optional types into unions:
   // optionalType?: string -> optionalType?: string | undefined
-  project.compilerOptions.set({strict: false})
+  project.compilerOptions.set({strict: false, strictNullChecks: true})
 
   const sourceFile = project.getSourceFile(path)
   if (!sourceFile) {

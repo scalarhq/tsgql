@@ -538,38 +538,17 @@ impl CodeGenCtx {
         }
     }
 
-    /// Return the non-nullable type of a union. This will error if there are more than 2
-    /// types, or there is no nullable type present
+    /// Return the first non-nullable type of a union. This will error if there is no
+    /// nullable type present.
+    ///
     /// ```
     /// Ex: "User | null"          -> User
-    ///     "User | string | null" -> Error
     ///     "User | string"        -> Error
     /// ```
     fn unwrap_union(ty: &TsUnionType) -> Result<&TsType> {
-        if ty.types.len() != 2 {
-            return Err(anyhow::anyhow!("Union types cannot have more than 2 types"));
-        }
-
-        let mut ret_ty: Option<&TsType> = None;
-        let mut has_nullable = false;
-        for typ in &ty.types {
-            if Self::is_nullable(typ) {
-                has_nullable = true;
-            } else {
-                ret_ty = Some(typ);
-            }
-        }
-
-        if !has_nullable {
-            return Err(anyhow::anyhow!(
-                "Union types cannot have more than 2 non-nullable types"
-            ));
-        }
-
-        if let Some(ret_ty) = ret_ty {
-            Ok(ret_ty)
-        } else {
-            Err(anyhow::anyhow!("No non-nullable type found in union"))
+        match ty.types.iter().find(|t| !Self::is_nullable(t)) {
+            None => Err(anyhow::anyhow!("No non-nullable type found in union")),
+            Some(t) => Ok(t),
         }
     }
 
@@ -607,7 +586,7 @@ impl CodeGenCtx {
                 name: "Boolean".into(),
             }),
             // TODO: Scalar types like BigInt
-            _ => todo!(),
+            r => todo!("Unsupported keyword type: {:?}", r),
         }
     }
 }

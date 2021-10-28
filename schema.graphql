@@ -1,0 +1,33 @@
+type User {
+  id: String!
+  name: String!
+  karma: Int!
+}
+type Loot {
+  rarity: Int!
+  name: String!
+}
+type Player {
+  user: User!
+  level: Int!
+}
+input GetUserInput {
+  id: String
+  name: String
+  karma: Int
+}
+type Query {
+  getUser(user: GetUserInput, karma: Int): [User]
+}
+input CreateUserInput {
+  name: String
+  karma: Int
+}
+type Mutation {
+  createUser(user: CreateUserInput!): User
+  createLoot(name: String): CreateLootOutput!
+}
+type CreateLootOutput {
+  success: Boolean!
+  loot: Loot
+}

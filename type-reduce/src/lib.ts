@@ -19,7 +19,13 @@ import {
   TypeReferenceNode,
   UnionTypeNode,
   ArrayTypeNode,
+  Symbol,
 } from 'ts-morph';
+
+const DefaultFormatFlags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias 
+
+let personSym: Symbol
+let personNode: Node
 
 export enum GraphQLType {
   Type,
@@ -38,7 +44,9 @@ export class TypeReducer {
 
   graphQlTypes: Record<string, GraphQLType>;
   acknowledgedTypes: Record<string, boolean>;
-  expanded: string[];
+
+  expanded: Record<string, string>
+  finalExpansions: string[];
 
   constructor(project: Project, sourceFile: SourceFile) {
     this.project = project;
@@ -47,14 +55,16 @@ export class TypeReducer {
 
     this.graphQlTypes = {};
     this.acknowledgedTypes = {};
-    this.expanded = [];
+
+    this.expanded = {}
+    this.finalExpansions = [];
   }
 
   generate(): [output: string, manifest: Record<string, GraphQLType>] {
     this.collectTypeNames();
     this.generateReducedTypes();
 
-    return [this.expanded.join('\n'), this.graphQlTypes];
+    return [this.finalExpansions.join('\n'), this.graphQlTypes];
   }
 
   // First pass, collect type names
@@ -80,6 +90,15 @@ export class TypeReducer {
     const imported = this.sourceFile.getImportDeclarations()
     for (const decl of imported) {
       for (const imp of decl.getNamedImports()) {
+        if (imp.getName() === 'Person') {
+          personSym = imp.getSymbolOrThrow()
+
+          const defNode = imp.getNameNode().getDefinitionNodes()[0]
+          console.log('PLEASE GOD HAVE MERCY', defNode.getType().getText(defNode, DefaultFormatFlags))
+          
+          console.log('Person type', this.checker.getTypeAtLocation(imp).getText(imp))
+          personNode = imp
+        }
         this.acknowledgedTypes[imp.getName()] = true
       }
     }
@@ -117,7 +136,11 @@ export class TypeReducer {
           break;
         }
         if (this.acknowledgedTypes[name]) {
-          this.expandNode(node, false, true)
+          
+          console.log('Please help me', node.getTypeNode()?.getKind())
+          // @ts-ignore
+          console.log('WHAT THE FUCK', node.getType().getText(personNode, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias))
+          this.expandNode(node, false, true, )
         } 
         // If we haven't visited this type, it probably means it's a utility type like
         // Partial<T>, Omit<T>, etc. and we want to expand it
@@ -128,7 +151,7 @@ export class TypeReducer {
     this.expandNode(node);
 
     const ty = node.getType().compilerType;
-    this.expanded.push(
+    this.finalExpansions.push(
       `type ${name} = ${this.checker.compilerObject.typeToString(
         ty,
         // For some reason setting this param to undefined will make
@@ -209,7 +232,8 @@ export class TypeReducer {
       set(obj: Record<string, any>): any;
     },
     inAutoExpandableCtx = true,
-    forceExpansion = false
+    forceExpansion = false,
+    enclosingNode?: Node
   ) {
     const ty = node.getType();
     if (ty.isIntersection() || forceExpansion) {
@@ -217,7 +241,7 @@ export class TypeReducer {
       node.set({ type: `___Expand<${type}>` });
     }
     if (!inAutoExpandableCtx) {
-      node.set({ type: this.typeToString(node.getType(), node as any) });
+      node.set({ type: this.typeToString(node.getType(), enclosingNode || node as any) });
     }
   }
 
@@ -286,39 +310,41 @@ export class TypeReducer {
           flags
         );
       }
-      case ts.SyntaxKind.UnionType: {
-        const unionNodes = (node as UnionTypeNode).getTypeNodes();
-        if (unionNodes.length !== 2) {
-          throw new Error(
-            'Type unions can only contain 1 nullable type and 1 non-nullable type'
-          );
-        }
+      // case ts.SyntaxKind.UnionType: {
+        // const unionNodes = (node as UnionTypeNode).getTypeNodes();
+        // if (unionNodes.length !== 2) {
+        //   throw new Error(
+        //     'Type unions can only contain 1 nullable type and 1 non-nullable type'
+        //   );
+        // }
 
-        // Type references won't get properly expanded in unions for some reason
-        const nonNull = unionNodes.find(
-          (node) =>
-            node.getKind() !== ts.SyntaxKind.UndefinedKeyword &&
-            node.getKind() !== ts.SyntaxKind.NullKeyword
-        );
-        if (!nonNull) {
-          throw new Error('Type unions must contain a non-nullable type');
-        }
+        // // Type references won't get properly expanded in unions for some reason
+        // const nonNull = unionNodes.find(
+        //   (node) =>
+        //     node.getKind() !== ts.SyntaxKind.UndefinedKeyword &&
+        //     node.getKind() !== ts.SyntaxKind.NullKeyword
+        // );
+        // if (!nonNull) {
+        //   throw new Error('Type unions must contain a non-nullable type');
+        // }
 
-        const str = this.typeToString(nonNull.getType(), nonNull, flags);
+        // const str = this.typeToString(nonNull.getType(), nonNull, flags);
 
-        // For some reason type checker mysteriously drops unions containing
-        // `| null` and `| undefined`, and perplexingly enough, node.isUnion() returns false
-        // even if node.kind === 185 (UnionType)...
-        const text = node?.getText();
-        if (text?.includes('| null')) {
-          return str + ' | null';
-        }
-        if (text?.includes('| undefined')) {
-          return str + ' | undefined';
-        }
+        // // For some reason type checker mysteriously drops unions containing
+        // // `| null` and `| undefined`, and perplexingly enough, node.isUnion() returns false
+        // // even if node.kind === 185 (UnionType)...
+        // const text = node?.getText();
+        // if (text?.includes('| null')) {
+        //   console.log('KIND IS', node.getKindName())
+        //   console.log('UNION EXPANDED', node.getType().getText(node, ts.TypeFormatFlags.None))
+        //   return str + ' | null';
+        // }
+        // if (text?.includes('| undefined')) {
+        //   return str + ' | undefined';
+        // }
 
-        throw new Error('This should not happen');
-      }
+      //   throw new Error('This should not happen');
+      // }
       default: {
         const f = this.checker.compilerObject.typeToString(
           ty.compilerType,
