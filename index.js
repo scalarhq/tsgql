@@ -1,5 +1,5 @@
 const { loadBinding } = require("@node-rs/helper");
-const { reduceTypes } = require("./dist");
+const { reduceTypes, createReducer } = require("./dist");
 const fs = require("fs");
 
 /**
@@ -20,7 +20,6 @@ const defaultArgs = {
 
 const readConfig = (path) => {
   const conf = require(path)
-  console.log(conf)
   if (!conf.tsconfigPath) conf.tsconfigPath = defaultArgs.tsconfigPath
   if (!conf.schema) conf.tsconfigPath = defaultArgs.schema
   if (!conf.out) conf.tsconfigPath = defaultArgs.out
@@ -30,12 +29,12 @@ const readConfig = (path) => {
 const run = () => {
   let path = "./tql.config.js";
   if (process.argv.length > 2) {
-	  console.log(process.argv)
     path = process.argv[2];
   }
   const { tsconfigPath, schema, out } = readConfig(path)
 
-  const [reduced, manifest] = reduceTypes({ tsconfigPath, path: schema });
+  const reducer = createReducer({tsconfigPath, path: schema})
+  const [reduced, manifest] = reducer.generate();
   console.log('Reduced', reduced)
 
   native.generateSchema(

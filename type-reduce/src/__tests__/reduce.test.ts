@@ -1,5 +1,7 @@
+import { join } from 'path';
 import { Project } from 'ts-morph';
 import { GraphQLType, TypeReducer } from '../lib';
+import { createReducer as createReducer_ } from '../index';
 
 describe('TypeReducer', () => {
   describe('First pass', () => {
@@ -76,7 +78,6 @@ type Query = { findUser: (args: { name: string; }) => Promise<User | null>; }
         `);
 
         const [output] = reduceTypes(reducer);
-        console.log(output);
         expect(output)
           .toEqual(`type User = { name: string | null; id: number; age: number; }
 type Person = { name: string | null; id: number; }
@@ -90,25 +91,24 @@ type Person = { name: string | null; id: number; }
         `);
 
         const [output] = reduceTypes(reducer);
-        console.log(output);
         expect(output)
           .toEqual(`type User = { name: string | null; id: number; age: number; }
-type Query = { findUser: (args: { name?: string; id?: number; age?: number; }) => Promise<User | null>; }
+type Query = { findUser: (args: { name?: string | null | undefined; id?: number | undefined; age?: number | undefined; }) => Promise<User | null>; }
 `);
       });
 
-      //       it('Expands utility types as input arg', () => {
-      //         const reducer = createReducer(`
-      //         export type User = { name: string | null, id: number, age: number }
-      //         export type Query = { findUser: (args: { user: Partial<User> }) => Promise<User | null> }
-      //         `)
+      it('Expands utility types in input arg', () => {
+        const reducer = createReducer(`
+              export type User = { name: string | null, id: number, age: number }
+              export type Query = { findUser: (args: { user: Partial<User> }) => Promise<User | null> }
+              `);
 
-      //         const [output] = reduceTypes(reducer)
-      //         console.log(output)
-      //         expect(output).toEqual(`type User = { name: string | null; id: number; age: number; }
-      // type Query = { findUser: (args: { user: { name?: string | null; id?: number; age: number;  } }) => Promise<User | null>; }
-      // `)
-      //       })
+        const [output] = reduceTypes(reducer);
+        expect(output)
+          .toEqual(`type User = { name: string | null; id: number; age: number; }
+type Query = { findUser: (args: { user: { name?: string | null | undefined; id?: number | undefined; age?: number | undefined; }; }) => Promise<User | null>; }
+`);
+      });
     });
   });
 });
@@ -117,30 +117,13 @@ function createReducer(
   source: string,
   ...other: { name: string; src: string }[]
 ) {
-  const project = new Project();
+  const reducer = createReducer_({
+    code: source,
+    additional: other,
+    test: true,
+  });
 
-  // With strict on Typescript turns optional types into unions:
-  // optionalType?: string -> optionalType?: string | undefined
-  project.compilerOptions.set({ strict: false });
-
-  other.forEach(({ name, src }) => project.createSourceFile(name, src));
-
-  project.createSourceFile(
-    './prelude.ts',
-    'export type Input<T extends Record<string, any>> = T;'
-  );
-  const sourceFile = project.createSourceFile('index.ts', source);
-  if (!sourceFile) {
-    throw new Error('Source file not found');
-  }
-
-  const diagnostics = project.getPreEmitDiagnostics();
-  if (diagnostics.length) {
-    console.error(diagnostics);
-    throw new Error('Aborting because of TSC errors');
-  }
-
-  return new TypeReducer(project, sourceFile);
+  return reducer;
 }
 
 function reduceTypes(
