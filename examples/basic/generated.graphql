@@ -1,13 +1,30 @@
-type User {
-  name: String
-  id: Int!
-  age: Int!
+type Person {
+  id: String!
+  name: String!
+  karma: Int
 }
-input FindUserInput {
+input GetUserInput {
+  id: String
   name: String
-  id: Int
-  age: Int
+  karma: Int
+}
+type Foo {
+  id: String!
+  name: String!
+  karma: Int
 }
 type Query {
-  findUser(user: FindUserInput!): User
+  getUser(user: GetUserInput, karma: Int): [Person]
+}
+type CreateUserOutput {
+  name: String!
+}
+input UpdateUserInput {
+  id: String
+  name: String
+  karma: Int
+}
+type Mutation {
+  createUser(name: String!, karma: Int): CreateUserOutput!
+  updateUser(user: UpdateUserInput!): Person
 }

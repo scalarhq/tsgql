@@ -144,29 +144,27 @@ impl CodeGenCtx {
         match stmt {
             Stmt::Decl(Decl::TsTypeAlias(alias)) => {
                 let ident = alias.id.sym.as_ref();
-                {
-                    match self.manifest.get(ident) {
-                        Some(&GraphQLKind::Input) => {
-                            let mut input_def = InputObjectDef::new(ident.to_string());
-                            self.parse_typed_fields(FieldKind::Input, &alias.type_ann)?
-                                .into_iter()
-                                .for_each(|f| input_def.field(f.input().unwrap()));
+                match self.manifest.get(ident) {
+                    Some(&GraphQLKind::Input) => {
+                        let mut input_def = InputObjectDef::new(ident.to_string());
+                        self.parse_typed_fields(FieldKind::Input, &alias.type_ann)?
+                            .into_iter()
+                            .for_each(|f| input_def.field(f.input().unwrap()));
 
-                            self.schema.input(input_def);
-                        }
-                        Some(_) => {
-                            let mut object_def = ObjectDef::new(ident.to_string());
-                            self.parse_typed_fields(FieldKind::Object, &alias.type_ann)?
-                                .into_iter()
-                                .for_each(|f| object_def.field(f.object().unwrap()));
-
-                            self.schema.object(object_def);
-                        }
-                        // Skip types not in the manifest
-                        None => {}
+                        self.schema.input(input_def);
                     }
-                    Ok(())
+                    Some(_) => {
+                        let mut object_def = ObjectDef::new(ident.to_string());
+                        self.parse_typed_fields(FieldKind::Object, &alias.type_ann)?
+                            .into_iter()
+                            .for_each(|f| object_def.field(f.object().unwrap()));
+
+                        self.schema.object(object_def);
+                    }
+                    // Skip types not in the manifest
+                    None => {}
                 }
+                Ok(())
             }
             _ => todo!(),
         }
@@ -264,103 +262,7 @@ impl CodeGenCtx {
                 type_name,
                 type_params,
                 ..
-            }) => {
-                if let TsEntityName::Ident(ident) = type_name {
-                    if ident.sym.to_string() != "Promise" {
-                        match self.manifest.get(ident.sym.as_ref()) {
-                            Some(&GraphQLKind::Object) if self.parsing_inputs => {
-                                return Err(anyhow::anyhow!(
-                                    "Field args can only be Inputs (check: {})",
-                                    ident.sym.as_ref()
-                                ));
-                            }
-                            Some(&GraphQLKind::Input) if !self.parsing_inputs => {
-                                return Err(anyhow::anyhow!(
-                                    "Field type can't be an Input (check: {})",
-                                    ident.sym.as_ref()
-                                ));
-                            }
-                            Some(_) => (
-                                Type_::NamedType {
-                                    name: ident.sym.to_string(),
-                                },
-                                None,
-                            ),
-                            None => {
-                                return Err(anyhow::anyhow!(
-                                    "Undefined type: {}",
-                                    ident.sym.as_ref()
-                                ))
-                            }
-                        }
-                    } else {
-                        match type_params {
-                            None => {
-                                return Err(anyhow::anyhow!("Missing type parameter for Promise"))
-                            }
-                            Some(TsTypeParamInstantiation { params, .. }) => {
-                                match params.len() {
-                                    1 => {}
-                                    other => {
-                                        return Err(anyhow::anyhow!(
-                                            "Invalid amount of type parameters for Promise: {}",
-                                            other
-                                        ))
-                                    }
-                                }
-                                let typ = &params[0];
-
-                                // Somewhat confusing, but if we are here then we are parsing return of
-                                // a field with arguments, meaning we don't know the optionality of the
-                                // return type until we unwrap it from the Promise, meaning we should
-                                // discard the `optional` param and return here
-                                //
-                                // Maybe we should move this match branch into its own dedicated function,
-                                // and when we parse the return we call that instead of this function.
-                                match &**typ {
-                                    TsType::TsUnionOrIntersectionType(
-                                        TsUnionOrIntersectionType::TsUnionType(u),
-                                    ) if Self::is_nullable_union(typ) => {
-                                        let non_null = Self::unwrap_union(u)?;
-                                        return match non_null {
-                                            TsType::TsTypeLit(_) => {
-                                                let name = Self::compute_new_name(
-                                                    ComputeNameKind::Output,
-                                                    field_name,
-                                                );
-                                                self.parse_type_literal(
-                                                    FieldKind::Object,
-                                                    &name,
-                                                    non_null,
-                                                )?;
-
-                                                return Ok((Type_::NamedType { name }, None));
-                                            }
-                                            _ => self.parse_type(field_name, non_null, true),
-                                        };
-                                    }
-                                    TsType::TsTypeLit(_) => {
-                                        let name = Self::compute_new_name(
-                                            ComputeNameKind::Output,
-                                            field_name,
-                                        );
-                                        self.parse_type_literal(FieldKind::Object, &name, typ)?;
-                                        (
-                                            Type_::NonNull {
-                                                ty: Box::new(Type_::NamedType { name }),
-                                            },
-                                            None,
-                                        )
-                                    }
-                                    _ => return self.parse_type("", typ, false),
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    todo!()
-                }
-            }
+            }) => self.parse_type_ref(field_name, type_name, type_params)?,
             TsType::TsFnOrConstructorType(TsFnOrConstructorType::TsFnType(TsFnType {
                 params,
                 // `type_ann` here is return type
@@ -428,6 +330,100 @@ impl CodeGenCtx {
         Ok((ty, args))
     }
 
+    fn parse_type_ref(
+        &mut self,
+        field_name: &str,
+        type_name: &TsEntityName,
+        type_params: &Option<TsTypeParamInstantiation>,
+    ) -> Result<(Type_, Option<Vec<InputValue>>)> {
+        if let TsEntityName::Ident(ident) = type_name {
+            if ident.sym.to_string() != "Promise" {
+                match self.manifest.get(ident.sym.as_ref()) {
+                    Some(&GraphQLKind::Object) if self.parsing_inputs => {
+                        return Err(anyhow::anyhow!(
+                            "Field args can only be Inputs (check: {})",
+                            ident.sym.as_ref()
+                        ));
+                    }
+                    Some(&GraphQLKind::Input) if !self.parsing_inputs => {
+                        return Err(anyhow::anyhow!(
+                            "Field type can't be an Input (check: {})",
+                            ident.sym.as_ref()
+                        ));
+                    }
+                    Some(_) => Ok((
+                        Type_::NamedType {
+                            name: ident.sym.to_string(),
+                        },
+                        None,
+                    )),
+                    None => return Err(anyhow::anyhow!("Undefined type: {}", ident.sym.as_ref())),
+                }
+            } else {
+                match type_params {
+                    None => return Err(anyhow::anyhow!("Missing type parameter for Promise")),
+                    Some(TsTypeParamInstantiation { params, .. }) => {
+                        match params.len() {
+                            1 => {}
+                            other => {
+                                return Err(anyhow::anyhow!(
+                                    "Invalid amount of type parameters for Promise: {}",
+                                    other
+                                ))
+                            }
+                        }
+                        let typ = &params[0];
+
+                        // Somewhat confusing, but if we are here then we are parsing return of
+                        // a field with arguments, meaning we don't know the optionality of the
+                        // return type until we unwrap it from the Promise, meaning we should
+                        // discard the `optional` param and return here
+                        //
+                        // Maybe we should move this match branch into its own dedicated function,
+                        // and when we parse the return we call that instead of this function.
+                        match &**typ {
+                            TsType::TsUnionOrIntersectionType(
+                                TsUnionOrIntersectionType::TsUnionType(u),
+                            ) if Self::is_nullable_union(typ) => {
+                                let non_null = Self::unwrap_union(u)?;
+                                match non_null {
+                                    TsType::TsTypeLit(_) => {
+                                        let name = Self::compute_new_name(
+                                            ComputeNameKind::Output,
+                                            field_name,
+                                        );
+                                        self.parse_type_literal(
+                                            FieldKind::Object,
+                                            &name,
+                                            non_null,
+                                        )?;
+
+                                        Ok((Type_::NamedType { name }, None))
+                                    }
+                                    _ => self.parse_type(field_name, non_null, true),
+                                }
+                            }
+                            TsType::TsTypeLit(_) => {
+                                let name =
+                                    Self::compute_new_name(ComputeNameKind::Output, field_name);
+                                self.parse_type_literal(FieldKind::Object, &name, typ)?;
+                                Ok((
+                                    Type_::NonNull {
+                                        ty: Box::new(Type_::NamedType { name }),
+                                    },
+                                    None,
+                                ))
+                            }
+                            _ => return self.parse_type("", typ, false),
+                        }
+                    }
+                }
+            }
+        } else {
+            todo!()
+        }
+    }
+
     fn parse_arg_member(
         &mut self,
         field_name: &str,
@@ -454,14 +450,31 @@ impl CodeGenCtx {
                             ComputeNameKind::Input(name, member_count),
                             field_name,
                         );
-                        self.parse_type_literal(FieldKind::Input, &input_name, &type_ann.type_ann)?;
-
-                        if !prop_sig.optional {
-                            Type_::NonNull {
-                                ty: Box::new(Type_::NamedType { name: input_name }),
+                        self.parse_arg_type_literal(
+                            &input_name,
+                            &type_ann.type_ann,
+                            prop_sig.optional,
+                        )?
+                    }
+                    TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
+                        uni,
+                    )) => {
+                        if !Self::is_nullable_union(&*type_ann.type_ann) {
+                            return Err(anyhow::anyhow!("Unions as field args must be nullable"));
+                        }
+                        let unwrapped = Self::unwrap_union(uni)?;
+                        match unwrapped {
+                            TsType::TsTypeLit(_) => {
+                                let input_name = Self::compute_new_name(
+                                    ComputeNameKind::Input(name, member_count),
+                                    field_name,
+                                );
+                                self.parse_arg_type_literal(&input_name, unwrapped, true)?
                             }
-                        } else {
-                            Type_::NamedType { name: input_name }
+                            _ => {
+                                let (ty, _) = self.parse_type(name, unwrapped, true)?;
+                                ty
+                            }
                         }
                     }
                     ty => {
@@ -475,6 +488,22 @@ impl CodeGenCtx {
             _ => Err(anyhow::anyhow!(
                 "Field args input can only contain properties"
             )),
+        }
+    }
+
+    fn parse_arg_type_literal(&mut self, name: &str, ty: &TsType, optional: bool) -> Result<Type_> {
+        self.parse_type_literal(FieldKind::Input, name, ty)?;
+
+        if !optional {
+            Ok(Type_::NonNull {
+                ty: Box::new(Type_::NamedType {
+                    name: name.to_string(),
+                }),
+            })
+        } else {
+            Ok(Type_::NamedType {
+                name: name.to_string(),
+            })
         }
     }
 
@@ -1193,6 +1222,36 @@ mod tests {
                 }
                 type Mutation {
                   updateUser(user: UpdateUserInput!): [UpdateUserOutput]
+                }
+                "# },
+                vec![
+                    ("User", GraphQLKind::Object),
+                    ("GetUserInput", GraphQLKind::Input),
+                    ("Query", GraphQLKind::Object),
+                    ("Mutation", GraphQLKind::Object),
+                ],
+            );
+
+            let src = "
+            type User = { id: string; name: string; karma: number; }
+            type Mutation = {
+                updateUser: (input: { user?: { id?: string; name?: string; } | undefined; }) => Promise<boolean>;
+            }
+            ";
+            test(
+                src,
+                indoc! { r#"
+                type User {
+                  id: String!
+                  name: String!
+                  karma: Int!
+                }
+                input UpdateUserInput {
+                  id: String
+                  name: String
+                }
+                type Mutation {
+                  updateUser(user: UpdateUserInput): Boolean!
                 }
                 "# },
                 vec![

@@ -1,10 +1,5 @@
 import {
-  isTypeReferenceNode,
-  UnionType,
-} from '@ts-morph/common/lib/typescript';
-import {
   Node,
-  ExportedDeclarations,
   FunctionTypeNode,
   ParameterDeclaration,
   Project,
@@ -14,19 +9,12 @@ import {
   Type,
   TypeAliasDeclaration,
   TypeChecker,
-  TypedNode,
   TypeLiteralNode,
   TypeReferenceNode,
-  UnionTypeNode,
-  ArrayTypeNode,
-  Symbol,
 } from 'ts-morph';
 
 const DefaultFormatFlags =
   ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias;
-
-let personSym: Symbol;
-let personNode: Node;
 
 export enum GraphQLType {
   Type,
@@ -282,7 +270,6 @@ export class TypeReducer {
         }
       }
 
-      console.log('Type is: ', this.typeToString(propSig.getType(), propSig));
       this.expandNode(propSig, false, true);
       return;
     }
