@@ -86,6 +86,8 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Setup node
         uses: actions/setup-node@v2
         with:
@@ -143,6 +145,8 @@ jobs:
     name: Build FreeBSD
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Build
         id: build
         uses: vmactions/freebsd-vm@v0.1.5
@@ -200,6 +204,8 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Setup node
         uses: actions/setup-node@v2
         with:
@@ -236,6 +242,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Setup node
         uses: actions/setup-node@v2
         with:
@@ -272,6 +280,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Setup node
         uses: actions/setup-node@v2
         with:
@@ -309,6 +319,8 @@ jobs:
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Download artifacts
         uses: actions/download-artifact@v2
         with:
@@ -339,6 +351,8 @@ jobs:
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Download artifacts
         uses: actions/download-artifact@v2
         with:
@@ -372,6 +386,8 @@ jobs:
     steps:
       - run: docker run --rm --privileged multiarch/qemu-user-static:register --reset
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Download artifacts
         uses: actions/download-artifact@v2
         with:
@@ -407,6 +423,8 @@ jobs:
       - build-freebsd
     steps:
       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Setup node
         uses: actions/setup-node@v2
         with:
