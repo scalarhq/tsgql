@@ -1,6 +1,5 @@
 const { loadBinding } = require("@node-rs/helper");
-const { reduceTypes, createReducer } = require("./dist");
-const fs = require("fs");
+const { createReducer } = require("./dist");
 
 /**
  * __dirname means load native addon from current dir
@@ -27,7 +26,7 @@ const readConfig = (path) => {
 }
 
 const run = () => {
-  let path = "./tql.config.js";
+  let path = "./tsgql.config.js";
   if (process.argv.length > 2) {
     path = process.argv[2];
   }

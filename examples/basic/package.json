@@ -5,7 +5,7 @@
   "author": "Zack Radisic",
   "license": "MIT",
   "scripts": {
-    "generate": "node ../../index.js ./examples/basic/tql.config.js"
+    "generate": "node ../../index.js ./examples/basic/tsgql.config.js"
   },
   "dependencies": {
     "typescript": "^4.4.4"
