@@ -1,7 +1,7 @@
 #[cfg(not(feature = "node"))]
 fn main() {
     use std::fs::{self};
-    use typefirstql::{generate_schema, parse_ts};
+    use tsgql::{generate_schema, parse_ts};
     let filepath = std::env::args().nth(2).unwrap();
     let outpath = std::env::args()
         .nth(3)

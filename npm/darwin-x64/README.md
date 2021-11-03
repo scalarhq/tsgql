@@ -1,3 +1,3 @@
-# `@typefirstql/core-darwin-x64`
+# `@tsgql/core-darwin-x64`
 
-This is the **x86_64-apple-darwin** binary for `@typefirstql/core`
+This is the **x86_64-apple-darwin** binary for `@tsgql/core`

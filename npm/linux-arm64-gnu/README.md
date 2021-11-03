@@ -1,3 +1,3 @@
-# `@typefirstql/core-linux-arm64-gnu`
+# `@tsgql/core-linux-arm64-gnu`
 
-This is the **aarch64-unknown-linux-gnu** binary for `@typefirstql/core`
+This is the **aarch64-unknown-linux-gnu** binary for `@tsgql/core`

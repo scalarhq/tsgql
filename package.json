@@ -1,5 +1,5 @@
 {
-  "name": "@typefirstql/core",
+  "name": "@tsgql/core",
   "types": "./dist",
   "version": "0.0.0",
   "napi": {

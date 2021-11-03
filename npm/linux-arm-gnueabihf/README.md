@@ -1,3 +1,3 @@
-# `@typefirstql/core-linux-arm-gnueabihf`
+# `@tsgql/core-linux-arm-gnueabihf`
 
-This is the **armv7-unknown-linux-gnueabihf** binary for `@typefirstql/core`
+This is the **armv7-unknown-linux-gnueabihf** binary for `@tsgql/core`
