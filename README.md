@@ -41,4 +41,9 @@ Check out the examples folder for sample usage.
 
 [Read more here](https://zackoverflow.dev/writing/tsgql).
 
+## How it works
+tsgql uses SWC to parse your Typescript schema into an AST, which is then walked and used to generate a GraphQL schema with [apollo-encoder](https://github.com/apollographql/apollo-rs/tree/main/crates/apollo-encoder).
+
+Before the SWC step, we run your Typescript types through the TS Compiler API, which reduces them into a simpler form. This is necessary because SWC provides no such type system utilities.
+
 This is an experimental internal tool we use at Modfy, and is subject to breaking changes and general instability.
