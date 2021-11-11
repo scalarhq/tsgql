@@ -20,11 +20,10 @@ fn init(mut exports: JsObject) -> Result<()> {
 }
 
 #[js_function(4)]
-fn generate(ctx: CallContext) -> Result<JsNumber> {
+fn generate(ctx: CallContext) -> Result<JsString> {
     let code = ctx.get::<JsString>(0)?.into_utf8()?;
     let manifest = ctx.get::<JsString>(1)?.into_utf8()?;
     let opts = ctx.get::<JsString>(2)?.into_utf8()?;
-    let output_path = ctx.get::<JsString>(3)?.into_utf8()?;
 
     let manifest_raw: HashMap<String, u8> = serde_json::from_str(manifest.as_str()?)?;
 
@@ -43,7 +42,5 @@ fn generate(ctx: CallContext) -> Result<JsNumber> {
         Err(e) => return Err(Error::new(napi::Status::Unknown, format!("{:?}", e))),
     };
 
-    fs::write(output_path.as_str()?, output)?;
-
-    ctx.env.create_uint32(0)
+    ctx.env.create_string(&output)
 }

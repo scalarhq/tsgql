@@ -96,8 +96,6 @@ export class TypeReducer {
   }
 
   generateReducedTypes() {
-    console.log(this.graphQlTypes);
-    console.log(this.acknowledgedTypes);
     const exported = this.sourceFile.getExportedDeclarations();
     for (const [name, [decl]] of exported) {
       switch (decl.getKind()) {

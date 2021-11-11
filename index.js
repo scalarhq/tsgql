@@ -1,3 +1,4 @@
+const fs = require('fs')
 const { loadBinding } = require("@node-rs/helper");
 const { createReducer } = require("./dist");
 
@@ -34,9 +35,8 @@ const run = () => {
 
   const reducer = createReducer({tsconfigPath, path: schema})
   const [reduced, manifest] = reducer.generate();
-  console.log('Reduced', reduced)
 
-  native.generateSchema(
+  const contents = native.generateSchema(
     reduced,
     JSON.stringify(manifest),
     `{
@@ -45,8 +45,9 @@ const run = () => {
             "decorators": false,
             "dynamicImport": false
       }`,
-    out
   );
+
+  fs.writeFileSync(out, contents);
 };
 
 run();

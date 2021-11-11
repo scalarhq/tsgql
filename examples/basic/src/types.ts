@@ -1,5 +1,5 @@
-export type Person = {
+export type RedJungleFowl = {
   id: string;
   name: string;
-  karma: number | null;
+  weight: number;
 }

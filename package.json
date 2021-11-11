@@ -22,7 +22,10 @@
     "@node-rs/helper": "^1.2.1"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^1.2.1"
+    "@napi-rs/cli": "^1.2.1",
+    "@swc-node/register": "^1.4.0",
+    "@types/node": "^16.11.7",
+    "ava": "^3.15.0"
   },
   "engines": {
     "node": ">= 10"
@@ -32,6 +35,21 @@
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "prepublishOnly": "napi prepublish -t npm",
-    "version": "napi version"
+    "version": "napi version",
+    "test": "ava"
+  },
+  "ava": {
+    "require": [
+      "@swc-node/register"
+    ],
+    "extensions": [
+      "ts"
+    ],
+    "environmentVariables": {
+      "TS_NODE_PROJECT": "./tsconfig.json"
+    },
+    "files": [
+      "__test__/**"
+    ]
   }
 }
