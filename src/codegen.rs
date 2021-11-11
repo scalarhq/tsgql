@@ -7,7 +7,7 @@ use swc_common::{FileName, FilePathMapping, SourceMap};
 use swc_ecmascript::ast::{
     BindingIdent, Decl, Expr, Module, ModuleItem, Stmt, TsArrayType, TsEntityName, TsFnParam,
     TsKeywordType, TsKeywordTypeKind, TsPropertySignature, TsType, TsTypeAnn, TsTypeElement,
-    TsTypeLit, TsTypeParamInstantiation, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    TsTypeParamInstantiation, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecmascript::ast::{Program, TsFnOrConstructorType, TsFnType};
 
@@ -106,6 +106,12 @@ impl ParsedField {
     }
 }
 
+/// The main struct used for generating GraphQL schemas from a widened
+/// tsgql Typescript schema input.
+///
+/// TODO: This code was written hastily and kind of confusing, should probably refactor
+/// it to use SWC's Visitor trait + state variables.
+/// Some good examples are in the Next.js [repo](https://github.com/vercel/next.js/tree/canary/packages/next/build/swc/src)
 struct CodeGenCtx {
     schema: Schema,
     manifest: HashMap<String, GraphQLKind>,
@@ -361,7 +367,7 @@ impl CodeGenCtx {
                 }
             } else {
                 match type_params {
-                    None => return Err(anyhow::anyhow!("Missing type parameter for Promise")),
+                    None => Err(anyhow::anyhow!("Missing type parameter for Promise")),
                     Some(TsTypeParamInstantiation { params, .. }) => {
                         match params.len() {
                             1 => {}
@@ -414,7 +420,7 @@ impl CodeGenCtx {
                                     None,
                                 ))
                             }
-                            _ => return self.parse_type("", typ, false),
+                            _ => self.parse_type("", typ, false),
                         }
                     }
                 }
@@ -531,9 +537,6 @@ impl CodeGenCtx {
 
                 Ok(())
             }
-            _ => {
-                panic!("Cannot turn type literal into: {:?}", kind);
-            }
         }
     }
 
@@ -581,9 +584,9 @@ impl CodeGenCtx {
         }
     }
 
-    /// Computes a name for a new Input type. The resulting name depends on the value of
-    /// `member_count`. If `member_count === 1`, then the return is simply a concatenation of
-    ///  of `field_name` and the string "Input".
+    /// Computes a name for a new Input type. The resulting name depends on the variant of
+    /// `ComputeNameKind`. If it is `ComputeNameKind::Input` we try to generate a unique
+    /// input name based on `field_name` and `param_name`
     ///
     /// Otherwise, we also concatenate the name of the param
     fn compute_new_name(kind: ComputeNameKind, field_name: &str) -> String {
