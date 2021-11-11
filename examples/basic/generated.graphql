@@ -1,3 +1,8 @@
+type RedJungleFowl {
+  id: String!
+  name: String!
+  weight: Int!
+}
 type User {
   id: String!
   name: String!
@@ -19,12 +24,8 @@ type Query {
 type CreateUserOutput {
   name: String!
 }
-input UpdateUserInput {
-  id: String
-  name: String
-  karma: Int
-}
 type Mutation {
   createUser(name: String!, karma: Int): CreateUserOutput!
-  updateUser(user: UpdateUserInput): User
+  updateUser(user: GetUserInput): User
+  getRedJungleFowl(name: String, weight: Int): RedJungleFowl
 }
