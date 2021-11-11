@@ -8,9 +8,9 @@ const { createReducer } = require("./dist");
  * the second arguments was decided by `napi.name` field in `package.json`
  * the third arguments was decided by `name` field in `package.json`
  * `loadBinding` helper will load `core.[PLATFORM].node` from `__dirname` first
- * If failed to load addon, it will fallback to load from `@tsgql/core-[PLATFORM]`
+ * If failed to load addon, it will fallback to load from `@modfy/tsgql-[PLATFORM]`
  */
-const native = loadBinding(__dirname, "core", "@tsgql/core");
+const native = loadBinding(__dirname, "core", "@modfy/tsgql");
 
 const defaultArgs = {
   tsconfigPath: "./tsconfig.json",

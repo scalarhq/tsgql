@@ -1,3 +1,3 @@
-# `@tsgql/core-darwin-x64`
+# `@modfy/tsgql-darwin-x64`
 
-This is the **x86_64-apple-darwin** binary for `@tsgql/core`
+This is the **x86_64-apple-darwin** binary for `@modfy/tsgql`

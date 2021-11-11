@@ -1,5 +1,5 @@
 {
-  "name": "@tsgql/core-linux-arm64-musl",
+  "name": "@modfy/tsgql-linux-arm64-musl",
   "version": "0.0.0",
   "os": [
     "linux"

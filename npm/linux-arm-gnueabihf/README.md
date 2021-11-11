@@ -1,3 +1,3 @@
-# `@tsgql/core-linux-arm-gnueabihf`
+# `@modfy/tsgql-linux-arm-gnueabihf`
 
-This is the **armv7-unknown-linux-gnueabihf** binary for `@tsgql/core`
+This is the **armv7-unknown-linux-gnueabihf** binary for `@modfy/tsgql`

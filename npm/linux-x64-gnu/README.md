@@ -1,3 +1,3 @@
-# `@tsgql/core-linux-x64-gnu`
+# `@modfy/tsgql-linux-x64-gnu`
 
-This is the **x86_64-unknown-linux-gnu** binary for `@tsgql/core`
+This is the **x86_64-unknown-linux-gnu** binary for `@modfy/tsgql`

@@ -1,3 +1,3 @@
-# `@tsgql/core-darwin-arm64`
+# `@modfy/tsgql-darwin-arm64`
 
-This is the **aarch64-apple-darwin** binary for `@tsgql/core`
+This is the **aarch64-apple-darwin** binary for `@modfy/tsgql`

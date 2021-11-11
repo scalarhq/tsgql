@@ -1,7 +1,7 @@
 import test from 'ava'
 
 const { loadBinding } = require("@node-rs/helper");
-const native = loadBinding(__dirname, "../core", "@tsgql/core");
+const native = loadBinding(__dirname, "../core", "@modfy/tsgql");
 
 test('works', (t) => {
   const types = `

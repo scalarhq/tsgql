@@ -1,3 +1,3 @@
-# `@tsgql/core-android-arm64`
+# `@modfy/tsgql-android-arm64`
 
-This is the **aarch64-linux-android** binary for `@tsgql/core`
+This is the **aarch64-linux-android** binary for `@modfy/tsgql`

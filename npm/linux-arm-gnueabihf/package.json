@@ -1,5 +1,5 @@
 {
-  "name": "@tsgql/core-linux-arm-gnueabihf",
+  "name": "@modfy/tsgql-linux-arm-gnueabihf",
   "version": "0.0.0",
   "os": [
     "linux"

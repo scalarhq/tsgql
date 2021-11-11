@@ -1,3 +1,3 @@
-# `@tsgql/core-win32-arm64-msvc`
+# `@modfy/tsgql-win32-arm64-msvc`
 
-This is the **aarch64-pc-windows-msvc** binary for `@tsgql/core`
+This is the **aarch64-pc-windows-msvc** binary for `@modfy/tsgql`
