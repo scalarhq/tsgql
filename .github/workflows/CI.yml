@@ -7,8 +7,8 @@ env:
   push:
     branches:
       - master
-    tags-ignore:
-      - '**'
+    tags:
+      - '*'
   pull_request: null
 jobs:
   build:
